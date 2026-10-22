@@ -3,14 +3,13 @@
   'use strict';
   var ORDER = 'URFDLB';
   var SOLVED = 'UUUUUUUUURRRRRRRRRFFFFFFFFFDDDDDDDDDLLLLLLLLLBBBBBBBBB';
-  var COLORS = { U: '#ffd500', R: '#c41e3a', F: '#009e60', D: '#ffffff', L: '#ff6a00', B: '#0051ba' };
-  var PL = { U: 'żółty', R: 'czerwony', F: 'zielony', D: 'biały', L: 'pomarańczowy', B: 'niebieski' };
-  var DEFAULT_RGB = { U: [225, 205, 40], R: [175, 30, 40], F: [20, 150, 85], D: [230, 232, 235], L: [240, 110, 35], B: [20, 70, 170] };
+  var COLORS = { U: '#ffd500', R: '#ff6a00', F: '#009e60', D: '#ffffff', L: '#c41e3a', B: '#0051ba' };
+  var PL = { U: 'żółty', R: 'pomarańczowy', F: 'zielony', D: 'biały', L: 'czerwony', B: 'niebieski' };
   var FACES = [
     { k: 'F', name: 'Przód – zielony', hint: 'Zielony środek do aparatu, żółty na górze.' },
-    { k: 'R', name: 'Prawa – czerwony', hint: 'Obróć kostkę w lewo: czerwony do aparatu, żółty na górze.' },
+    { k: 'R', name: 'Prawa – pomarańczowy', hint: 'Obróć kostkę w lewo: pomarańczowy do aparatu, żółty na górze.' },
     { k: 'B', name: 'Tył – niebieski', hint: 'Dalej w lewo: niebieski do aparatu, żółty na górze.' },
-    { k: 'L', name: 'Lewa – pomarańczowy', hint: 'Dalej w lewo: pomarańczowy do aparatu, żółty na górze.' },
+    { k: 'L', name: 'Lewa – czerwony', hint: 'Dalej w lewo: czerwony do aparatu, żółty na górze.' },
     { k: 'U', name: 'Góra – żółty', hint: 'Zielony do siebie, przechyl górę do aparatu: żółty widać, niebieski u góry zdjęcia.' },
     { k: 'D', name: 'Dół – biały', hint: 'Zielony do siebie, przechyl dół do aparatu: biały widać, zielony u góry zdjęcia.' }
   ];
@@ -21,7 +20,7 @@
   var lowConf = {};
   var badIdx = {};
   var paint = 'U';
-  var photos = {}; // k -> {canvas, box:{x,y,s}, samples:[rgb x9]}
+  var photos = {}; // ścianka -> zdjęcie {canvas, box:{x,y,s}, samples}
 
   /* ---------- zakładki ---------- */
   function showTab(t) {
@@ -73,68 +72,156 @@
   });
 
   /* ---------- zdjęcia ---------- */
+  // Zdjęcia dodaje się w jednym miejscu, w dowolnej kolejności i orientacji.
+  // Ściankę rozpoznajemy po kolorze środka, a obrót – sprawdzając, przy jakim ułożeniu kostka jest poprawna.
+  var shots = [], shotSeq = 0, orientNote = '';
   var facesEl = $('#faces');
-  FACES.forEach(function (F) {
-    var card = el('div', 'face-card');
-    card.innerHTML = '<div class="face-title"><span class="dot" style="background:' + COLORS[F.k] + '"></span>' + F.name + '</div>' +
-      '<div class="face-hint">' + F.hint + '</div>' +
-      '<div class="drop"><span>Brak zdjęcia<br><small>użyj przycisków poniżej</small></span><canvas class="hidden"></canvas></div>' +
-      '<div class="face-actions">' +
-        '<button class="btn" data-a="live" title="Skan kamerą na żywo">🎥</button>' +
-        '<label class="btn">📷<input type="file" accept="image/*" capture="environment" hidden></label>' +
-        '<label class="btn">🖼<input type="file" accept="image/*" hidden></label>' +
-        '<button class="btn hidden" data-a="rot" title="Obróć zdjęcie">⟳</button>' +
-      '</div>';
-    var cv = $('canvas', card);
-    card.querySelectorAll('input[type=file]').forEach(function (input) {
-      input.onchange = function () { if (input.files[0]) loadPhoto(F.k, input.files[0]); input.value = ''; };
-    });
-    $('[data-a=live]', card).onclick = function () { cam.open(F.k); };
-    $('[data-a=rot]', card).onclick = function () { rotatePhoto(F.k); };
-    setupDrag(F.k, cv);
-    facesEl.appendChild(card);
-    F.card = card;
-  });
+  var FACE_NAME = {}; FACES.forEach(function (F) { FACE_NAME[F.k] = F.name; });
 
-  function setPhoto(k, c, box) {
-    var card = cardOf(k);
-    photos[k] = { canvas: c, box: box };
-    $('canvas', card).classList.remove('hidden');
-    $('.drop span', card).classList.add('hidden');
-    $('[data-a=rot]', card).classList.remove('hidden');
-    card.classList.add('done');
-    drawPhoto(k); classifyAll();
+  function addFiles(files) {
+    var list = Array.prototype.slice.call(files || []).filter(function (f) { return /^image\//.test(f.type) || /\.(jpe?g|png|webp|heic)$/i.test(f.name); });
+    var free = 6 - shots.length;
+    if (list.length > free) {
+      var m = $('#validate-msg'); m.className = 'msg err';
+      m.textContent = free > 0 ? 'Maksymalnie 6 zdjęć – dodałem ' + free + ' pierwsze.' : 'Masz już 6 zdjęć. Usuń któreś, żeby dodać nowe.';
+      list = list.slice(0, Math.max(0, free));
+    }
+    var pending = list.length;
+    list.forEach(function (file) {
+      var img = new Image();
+      img.onload = function () {
+        var max = 700, sc = Math.min(1, max / Math.max(img.width, img.height));
+        var c = document.createElement('canvas');
+        c.width = Math.round(img.width * sc); c.height = Math.round(img.height * sc);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        URL.revokeObjectURL(img.src);
+        addShot(c, autoBox(c), null, true);
+        if (--pending === 0) refreshShots();
+      };
+      img.onerror = function () { if (--pending === 0) refreshShots(); };
+      img.src = URL.createObjectURL(file);
+    });
   }
-  function loadPhoto(k, file) {
-    var img = new Image();
-    img.onload = function () {
-      var max = 700, sc = Math.min(1, max / Math.max(img.width, img.height));
-      var c = document.createElement('canvas');
-      c.width = Math.round(img.width * sc); c.height = Math.round(img.height * sc);
-      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
-      var s = Math.min(c.width, c.height) * 0.7;
-      URL.revokeObjectURL(img.src);
-      setPhoto(k, c, { x: (c.width - s) / 2, y: (c.height - s) / 2, s: s });
+  function addShot(c, box, face, defer) {
+    var sh = { id: ++shotSeq, canvas: c, box: box, face: face || null, manual: !!face };
+    shots.push(sh); buildCard(sh);
+    if (!defer) refreshShots();
+    return sh;
+  }
+  function removeShot(sh) {
+    shots = shots.filter(function (x) { return x !== sh; });
+    if (sh.card) sh.card.remove();
+    if (sh.face) { var fi = ORDER.indexOf(sh.face) * 9; for (var j = 0; j < 9; j++) state[fi + j] = sh.face; }
+    refreshShots();
+  }
+
+  function buildCard(sh) {
+    var card = el('div', 'face-card');
+    card.innerHTML = '<div class="face-title"><span class="dot"></span><select class="face-sel" title="Która to ścianka?"></select></div>' +
+      '<div class="drop"><canvas></canvas></div>' +
+      '<div class="face-actions">' +
+        '<button class="btn" data-a="redetect" title="Znajdź kostkę ponownie">⌖</button>' +
+        '<button class="btn" data-a="rot" title="Obróć zdjęcie">⟳</button>' +
+        '<button class="btn" data-a="del" title="Usuń zdjęcie">✕</button>' +
+      '</div>';
+    sh.card = card; sh.cv = $('canvas', card);
+    var sel = $('select', card);
+    sel.appendChild(new Option('Automatycznie', ''));
+    FACES.forEach(function (F) { sel.appendChild(new Option(PL[F.k] + ' (' + F.name.split(' –')[0].toLowerCase() + ')', F.k)); });
+    sel.onchange = function () {
+      if (sel.value) {
+        shots.forEach(function (o) { if (o !== sh && o.manual && o.face === sel.value) o.manual = false; });
+        sh.face = sel.value; sh.manual = true;
+      } else sh.manual = false;
+      refreshShots();
     };
-    img.src = URL.createObjectURL(file);
+    $('[data-a=rot]', card).onclick = function () { rotateShot(sh); refreshShots(); };
+    $('[data-a=del]', card).onclick = function () { removeShot(sh); };
+    $('[data-a=redetect]', card).onclick = function () { sh.box = autoBox(sh.canvas); refreshShots(); };
+    setupDrag(sh);
+    facesEl.insertBefore(card, $('#add-card'));
   }
-  function rotatePhoto(k) {
-    var p = photos[k]; if (!p) return;
-    var c = document.createElement('canvas'); c.width = p.canvas.height; c.height = p.canvas.width;
-    var g = c.getContext('2d'); g.translate(c.width, 0); g.rotate(Math.PI / 2); g.drawImage(p.canvas, 0, 0);
-    var s = p.box.s; p.canvas = c; p.box = { x: (c.width - s) / 2, y: (c.height - s) / 2, s: s };
-    drawPhoto(k); classifyAll();
+
+  // Przypisanie ścianek po kolorze środka: najtańsze dopasowanie zdjęcia → ścianka (każda ścianka raz)
+  function assignFaces() {
+    var refs = {}; ORDER.split('').forEach(function (f) { refs[f] = RubikColor.feat(RubikColor.DEFAULT_RGB[f]); });
+    var taken = {}; shots.forEach(function (sh) { if (sh.manual) taken[sh.face] = true; });
+    var auto = shots.filter(function (sh) { return !sh.manual; });
+    var freeF = ORDER.split('').filter(function (f) { return !taken[f]; });
+    var cost = auto.map(function (sh) {
+      var L = RubikColor.feat(sample(sh)[4]);
+      return freeF.map(function (f) { return RubikColor.dist(L, refs[f]); });
+    });
+    var best = null, bestC = 1e18, used = [];
+    (function go(i, acc, pick) {
+      if (acc >= bestC) return;
+      if (i === auto.length) { bestC = acc; best = pick.slice(); return; }
+      for (var j = 0; j < freeF.length; j++) if (!used[j]) { used[j] = true; pick.push(j); go(i + 1, acc + cost[i][j], pick); pick.pop(); used[j] = false; }
+    })(0, 0, []);
+    auto.forEach(function (sh, i) { sh.face = best ? freeF[best[i]] : null; });
+    photos = {}; shots.forEach(function (sh) { if (sh.face) photos[sh.face] = sh; });
   }
-  function cardOf(k) { return FACES.filter(function (f) { return f.k === k; })[0].card; }
-  function view(k) {
-    var p = photos[k], cv = $('canvas', cardOf(k));
-    var W = cv.clientWidth || 160, dpr = window.devicePixelRatio || 1;
-    var sc = Math.min(W / p.canvas.width, W / p.canvas.height);
-    return { cv: cv, W: W, dpr: dpr, sc: sc, ox: (W - p.canvas.width * sc) / 2, oy: (W - p.canvas.height * sc) / 2 };
+
+  // obrót zdjęcia o 90° w prawo razem z ramką (ramka zostaje na kostce)
+  function rotateShot(sh) {
+    var c = document.createElement('canvas'); c.width = sh.canvas.height; c.height = sh.canvas.width;
+    var g = c.getContext('2d'); g.translate(c.width, 0); g.rotate(Math.PI / 2); g.drawImage(sh.canvas, 0, 0);
+    var b = sh.box; sh.box = { x: sh.canvas.height - (b.y + b.s), y: b.x, s: b.s }; sh.canvas = c;
   }
-  function drawPhoto(k) {
-    var p = photos[k]; if (!p) return;
-    var v = view(k), cv = v.cv;
+  function rotatePhoto(k, quiet) { if (photos[k]) { rotateShot(photos[k]); if (!quiet) refreshShots(); } }
+
+  function refreshShots(skipOrient) {
+    assignFaces();
+    classifyAll();
+    orientNote = '';
+    if (!skipOrient && shots.length === 6 && !validate(state).ok) {
+      var fix = findFix(state, lowConf);
+      if (fix) {
+        var names = [];
+        fix.rots.forEach(function (k, fi) {
+          if (!k) return; var f = ORDER[fi]; names.push(PL[f]);
+          for (var t = 0; t < k; t++) rotateShot(photos[f]);
+        });
+        // zdjęcia obrócone – wynik przenosimy bez ponownej klasyfikacji (zachowuje poprawki kolorów)
+        var lc = new Array(54); Object.keys(lowConf).forEach(function (i) { lc[i] = lowConf[i]; });
+        fix.rots.forEach(function (k, fi) { if (k) rotFace(lc, fi, k); });
+        lowConf = {}; lc.forEach(function (v, i) { if (v && fix.changed.indexOf(i) < 0) lowConf[i] = v; });
+        state = fix.state;
+        renderNet();
+        var parts = [];
+        if (names.length) parts.push('obróciłem zdjęcia: ' + names.join(', '));
+        if (fix.changed.length) parts.push('poprawiłem ' + fix.changed.length + (fix.changed.length === 1 ? ' niepewną naklejkę' : ' niepewne naklejki') + ' (zgodnie z budową kostki)');
+        orientNote = parts.length ? parts.join(' i ').replace(/^./, function (c) { return c.toUpperCase(); }) + '.' : '';
+      }
+    }
+    shots.forEach(function (sh) {
+      var sel = $('select', sh.card); sel.value = sh.manual ? sh.face : '';
+      sel.options[0].text = 'Auto: ' + (sh.face ? PL[sh.face] : '?');
+      $('.dot', sh.card).style.background = sh.face ? COLORS[sh.face] : '#444';
+      sh.card.classList.toggle('done', !!sh.face);
+      drawShot(sh);
+    });
+    $('#add-card').classList.toggle('hidden', shots.length >= 6);
+    $('#shot-count').textContent = shots.length + '/6';
+    statusMsg();
+  }
+  function statusMsg() {
+    var m = $('#validate-msg');
+    if (!shots.length) return;
+    var missing = ORDER.split('').filter(function (f) { return !photos[f]; }).map(function (f) { return PL[f]; });
+    var v = validate(state), n = Object.keys(lowConf).length;
+    if (missing.length) { m.className = 'msg'; m.textContent = 'Brakuje zdjęć ścianek: ' + missing.join(', ') + '.' + (n ? ' Niepewne naklejki: ' + n + '.' : ''); }
+    else if (v.ok) { m.className = 'msg ok'; m.textContent = (orientNote ? orientNote + ' ' : '') + 'Kostka rozpoznana poprawnie – kliknij „Sprawdź i rozwiąż”.'; }
+    else { m.className = 'msg err'; m.innerHTML = 'Coś się nie zgadza – popraw ramki na zdjęciach albo kolory na siatce (stukaj w naklejki).' + (n ? '<br>Niepewne naklejki (biała obwódka): ' + n + '.' : ''); }
+  }
+
+  function view(sh) {
+    var cv = sh.cv, W = cv.clientWidth || 160, dpr = window.devicePixelRatio || 1;
+    var sc = Math.min(W / sh.canvas.width, W / sh.canvas.height);
+    return { cv: cv, W: W, dpr: dpr, sc: sc, ox: (W - sh.canvas.width * sc) / 2, oy: (W - sh.canvas.height * sc) / 2 };
+  }
+  function drawShot(sh) {
+    var v = view(sh), cv = v.cv, p = sh;
     cv.width = v.W * v.dpr; cv.height = v.W * v.dpr;
     var g = cv.getContext('2d'); g.setTransform(v.dpr, 0, 0, v.dpr, 0, 0);
     g.fillStyle = '#000'; g.fillRect(0, 0, v.W, v.W);
@@ -149,20 +236,20 @@
       g.beginPath(); g.moveTo(bx, by + bs * i / 3); g.lineTo(bx + bs, by + bs * i / 3); g.stroke();
     }
     g.fillStyle = '#f5b400'; g.fillRect(bx + bs - 12, by + bs - 12, 12, 12);
-    if (p.samples) {
-      var fi = ORDER.indexOf(k) * 9;
+    if (p.face) {
+      var fi = ORDER.indexOf(p.face) * 9;
       for (var j = 0; j < 9; j++) {
         var cx = bx + bs * ((j % 3) + 0.5) / 3, cy = by + bs * (Math.floor(j / 3) + 0.5) / 3;
         g.beginPath(); g.arc(cx, cy, Math.max(4, bs / 22), 0, 7);
-        g.fillStyle = COLORS[state[fi + j]]; g.fill(); g.strokeStyle = '#000'; g.lineWidth = 1.5; g.stroke();
+        g.fillStyle = COLORS[state[fi + j]]; g.fill(); g.strokeStyle = lowConf[fi + j] ? '#fff' : '#000'; g.lineWidth = lowConf[fi + j] ? 2.5 : 1.5; g.stroke();
       }
     }
   }
-  function setupDrag(k, cv) {
-    var drag = null;
+  function drawPhoto(k) { if (photos[k]) drawShot(photos[k]); }
+  function setupDrag(sh) {
+    var drag = null, cv = sh.cv;
     cv.addEventListener('pointerdown', function (e) {
-      var p = photos[k]; if (!p) return;
-      var v = view(k), r = cv.getBoundingClientRect();
+      var v = view(sh), r = cv.getBoundingClientRect(), p = sh;
       var x = (e.clientX - r.left - v.ox) / v.sc, y = (e.clientY - r.top - v.oy) / v.sc;
       var corner = Math.abs(x - (p.box.x + p.box.s)) < p.box.s * 0.18 && Math.abs(y - (p.box.y + p.box.s)) < p.box.s * 0.18;
       drag = { mode: corner ? 'size' : 'move', x: x, y: y, box: Object.assign({}, p.box) };
@@ -170,81 +257,56 @@
     });
     cv.addEventListener('pointermove', function (e) {
       if (!drag) return;
-      var p = photos[k], v = view(k), r = cv.getBoundingClientRect();
+      var v = view(sh), r = cv.getBoundingClientRect();
       var x = (e.clientX - r.left - v.ox) / v.sc, y = (e.clientY - r.top - v.oy) / v.sc;
       var dx = x - drag.x, dy = y - drag.y, b = drag.box;
-      if (drag.mode === 'move') { p.box.x = b.x + dx; p.box.y = b.y + dy; }
-      else { p.box.s = Math.max(30, b.s + Math.max(dx, dy)); }
-      drawPhoto(k);
+      if (drag.mode === 'move') { sh.box.x = b.x + dx; sh.box.y = b.y + dy; }
+      else { sh.box.s = Math.max(30, b.s + Math.max(dx, dy)); }
+      drawShot(sh);
     });
-    var end = function () { if (drag) { drag = null; classifyAll(); } };
+    var end = function () { if (drag) { drag = null; refreshShots(); } };
     cv.addEventListener('pointerup', end); cv.addEventListener('pointercancel', end);
   }
 
-  function sample(p) {
-    var g = p.canvas.getContext('2d', { willReadFrequently: true }), out = [];
-    for (var j = 0; j < 9; j++) {
-      var cs = p.box.s / 3, x0 = p.box.x + (j % 3) * cs + cs * 0.3, y0 = p.box.y + Math.floor(j / 3) * cs + cs * 0.3, w = Math.max(1, cs * 0.4);
-      x0 = Math.max(0, Math.min(p.canvas.width - w, x0)); y0 = Math.max(0, Math.min(p.canvas.height - w, y0));
-      var d = g.getImageData(Math.round(x0), Math.round(y0), Math.round(w), Math.round(w)).data;
-      // mediana kanałów – odporna na odblaski
-      var rs = [], gs = [], bs = [];
-      for (var i = 0; i < d.length; i += 4) { rs.push(d[i]); gs.push(d[i + 1]); bs.push(d[i + 2]); }
-      var med = function (a) { a.sort(function (m, n) { return m - n; }); return a[a.length >> 1]; };
-      out.push([med(rs), med(gs), med(bs)]);
-    }
-    return out;
-  }
-  function lab(rgb) {
-    var c = rgb.map(function (v) { v /= 255; return v > 0.04045 ? Math.pow((v + 0.055) / 1.055, 2.4) : v / 12.92; });
-    var X = (c[0] * 0.4124 + c[1] * 0.3576 + c[2] * 0.1805) / 0.95047, Y = c[0] * 0.2126 + c[1] * 0.7152 + c[2] * 0.0722, Z = (c[0] * 0.0193 + c[1] * 0.1192 + c[2] * 0.9505) / 1.08883;
-    var f = function (t) { return t > 0.008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116; };
-    return [116 * f(Y) - 16, 500 * (f(X) - f(Y)), 200 * (f(Y) - f(Z))];
-  }
-  function dist(a, b) { var l = (a[0] - b[0]) * 0.6; return Math.sqrt(l * l + (a[1] - b[1]) * (a[1] - b[1]) + (a[2] - b[2]) * (a[2] - b[2])); }
+  // wspólne miejsce dodawania zdjęć
+  (function () {
+    var add = el('label', 'face-card add-card');
+    add.id = 'add-card';
+    add.innerHTML = '<div class="add-inner"><b>＋</b><span>Dodaj zdjęcia</span><small>wybierz kilka naraz albo upuść tutaj</small></div><input type="file" accept="image/*" multiple hidden>';
+    $('input', add).onchange = function () { addFiles(this.files); this.value = ''; };
+    facesEl.appendChild(add);
+    $('#inp-camera').onchange = function () { addFiles(this.files); this.value = ''; };
+    $('#inp-gallery').onchange = function () { addFiles(this.files); this.value = ''; };
+    $('#btn-clear').onclick = function () { shots.slice().forEach(function (sh) { if (sh.card) sh.card.remove(); }); shots = []; photos = {}; state = SOLVED.split(''); lowConf = {}; refreshShots(); renderNet(); $('#validate-msg').textContent = ''; };
+    var zone = $('#tab-scan');
+    ['dragenter', 'dragover'].forEach(function (ev) { zone.addEventListener(ev, function (e) { e.preventDefault(); add.classList.add('over'); }); });
+    ['dragleave', 'drop'].forEach(function (ev) { zone.addEventListener(ev, function (e) { e.preventDefault(); add.classList.remove('over'); }); });
+    zone.addEventListener('drop', function (e) { if (e.dataTransfer && e.dataTransfer.files.length) addFiles(e.dataTransfer.files); });
+  })();
 
+  function pixels(cv) { return cv.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, cv.width, cv.height).data; }
+  function sample(p) { return RubikColor.sampleRGB(pixels(p.canvas), p.canvas.width, p.canvas.height, p.box, 4); }
   function refsNow() {
-    var refs = {};
-    ORDER.split('').forEach(function (f) { refs[f] = lab(photos[f] && photos[f].samples ? photos[f].samples[4] : DEFAULT_RGB[f]); });
-    return refs;
+    var smp = {};
+    Object.keys(photos).forEach(function (k) { if (photos[k].samples) smp[k] = photos[k].samples; });
+    return RubikColor.refsFrom(smp);
   }
-  function nearest(rgb, refs) {
-    var L = lab(rgb), best = null, bd = 1e9;
-    ORDER.split('').forEach(function (f) { var d = dist(L, refs[f]); if (d < bd) { bd = d; best = f; } });
-    return best;
+  var nearest = RubikColor.nearest;
+  // automatyczne znalezienie kostki na zdjęciu
+  function autoBox(c) {
+    var W = 200, k = c.width / W, H = Math.round(c.height / k);
+    var t = document.createElement('canvas'); t.width = W; t.height = H;
+    var g = t.getContext('2d', { willReadFrequently: true }); g.imageSmoothingQuality = 'high'; g.drawImage(c, 0, 0, W, H);
+    var r = detectGrid(g.getImageData(0, 0, W, H).data, W, H, 4);
+    if (!r) { var s0 = Math.min(c.width, c.height) * 0.7; return { x: (c.width - s0) / 2, y: (c.height - s0) / 2, s: s0 }; }
+    return { x: r.x * k, y: r.y * k, s: r.s * k };
   }
   function classifyAll() {
-    var keys = Object.keys(photos);
-    keys.forEach(function (k) { photos[k].samples = sample(photos[k]); });
-    var refs = {};
-    ORDER.split('').forEach(function (f) { refs[f] = lab(photos[f] ? photos[f].samples[4] : DEFAULT_RGB[f]); });
-    var items = [];
-    keys.forEach(function (k) {
-      var fi = ORDER.indexOf(k) * 9;
-      photos[k].samples.forEach(function (rgb, j) {
-        if (j === 4) return;
-        var L = lab(rgb), ds = ORDER.split('').map(function (f) { return { f: f, d: dist(L, refs[f]) }; }).sort(function (a, b) { return a.d - b.d; });
-        items.push({ idx: fi + j, ds: ds });
-      });
-    });
-    lowConf = {};
-    var all6 = keys.length === 6;
-    if (all6) {
-      // przydział z limitem 8 naklejek na kolor (+ środek = 9)
-      var pairs = [];
-      items.forEach(function (it) { it.ds.forEach(function (d) { pairs.push({ idx: it.idx, f: d.f, d: d.d }); }); });
-      pairs.sort(function (a, b) { return a.d - b.d; });
-      var cap = {}, done = {};
-      ORDER.split('').forEach(function (f) { cap[f] = 8; });
-      pairs.forEach(function (p) { if (done[p.idx] || cap[p.f] <= 0) return; done[p.idx] = p.f; cap[p.f]--; });
-      items.forEach(function (it) { state[it.idx] = done[it.idx]; if (done[it.idx] !== it.ds[0].f || it.ds[1].d - it.ds[0].d < 8) lowConf[it.idx] = 1; });
-    } else {
-      items.forEach(function (it) { state[it.idx] = it.ds[0].f; if (it.ds[1].d - it.ds[0].d < 8) lowConf[it.idx] = 1; });
-    }
+    var keys = Object.keys(photos), smp = {};
+    keys.forEach(function (k) { photos[k].samples = sample(photos[k]); smp[k] = photos[k].samples; });
+    lowConf = RubikColor.classify(smp, state);
     keys.forEach(drawPhoto);
     renderNet();
-    var n = Object.keys(lowConf).length;
-    if (n) { $('#validate-msg').textContent = 'Naklejki z białą obwódką (' + n + ') są niepewne – sprawdź je.'; }
   }
 
 
@@ -293,7 +355,9 @@
       var f = frame(700); if (!f) return;
       var c = document.createElement('canvas'); c.width = f.canvas.width; c.height = f.canvas.height;
       c.getContext('2d').drawImage(f.canvas, 0, 0);
-      setPhoto(FACES[faceIdx].k, c, f.box);
+      var kf = FACES[faceIdx].k;
+      if (photos[kf]) removeShot(photos[kf]);
+      addShot(c, f.box, kf);
       box.classList.add('flash'); setTimeout(function () { box.classList.remove('flash'); }, 180);
       var next = -1;
       for (var i = 1; i <= 6; i++) { var j = (faceIdx + i) % 6; if (!photos[FACES[j].k]) { next = j; break; } }
@@ -308,13 +372,12 @@
       box.classList.remove('hidden'); document.body.classList.add('noscroll');
       $('#cam-err').classList.add('hidden');
       var start = 0;
-      if (k) start = FACES.map(function (F) { return F.k; }).indexOf(k);
-      else for (var i = 0; i < 6; i++) if (!photos[FACES[i].k]) { start = i; break; }
+      for (var i = 0; i < 6; i++) if (!photos[FACES[i].k]) { start = i; break; }
       setFace(start);
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return fail('Ta przeglądarka nie daje dostępu do kamery. Użyj przycisku 📷 przy ściance.');
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return fail('Ta przeglądarka nie daje dostępu do kamery. Użyj przycisku „Zrób zdjęcie” albo dodaj zdjęcia z galerii.');
       navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false })
         .then(function (st) { stream = st; video.srcObject = st; video.play(); timer = setInterval(live, 180); })
-        .catch(function (e) { fail('Brak dostępu do kamery (' + (e.name || e) + '). Zezwól na kamerę w przeglądarce albo użyj przycisku 📷 przy ściance.'); });
+        .catch(function (e) { fail('Brak dostępu do kamery (' + (e.name || e) + '). Zezwól na kamerę w przeglądarce albo dodaj zdjęcia z galerii.'); });
     }
     function fail(msg) { var e = $('#cam-err'); e.textContent = msg; e.classList.remove('hidden'); }
     function close() {
@@ -380,10 +443,69 @@
     state = Cube.random().asString().split(''); lowConf = {}; renderNet();
     $('#validate-msg').className = 'msg ok'; $('#validate-msg').textContent = 'Wylosowano kostkę. Kliknij „Sprawdź i rozwiąż”.';
   };
-  $('#btn-reset').onclick = function () { state = SOLVED.split(''); lowConf = {}; renderNet(); };
+  var ROT_CW = [6, 3, 0, 7, 4, 1, 8, 5, 2];
+  function rotFace(arr, fi, k) {
+    for (var t = 0; t < k; t++) { var f = arr.slice(fi * 9, fi * 9 + 9); for (var j = 0; j < 9; j++) arr[fi * 9 + j] = f[ROT_CW[j]]; }
+  }
+  // Szuka poprawnej kostki: obroty ścianek + ewentualna zmiana koloru kilku niepewnych naklejek na drugi najlepszy
+  function findFix(s, low) {
+    var cand = Object.keys(low || {}).map(Number).sort(function (a, b) { return low[a].m - low[b].m; }).slice(0, 10);
+    var maxK = Math.min(3, cand.length);
+    for (var size = 0; size <= maxK; size++) {
+      var found = null, many = false;
+      (function comb(start, pick) {
+        if (many) return;
+        if (pick.length === size) {
+          var t = s.slice(); pick.forEach(function (i) { t[i] = low[i].alt; });
+          var r = findRotationFix(t, true);
+          if (r) { if (found) many = true; else found = { rots: r.rots, state: r.state, changed: pick.slice() }; }
+          return;
+        }
+        for (var i = start; i < cand.length; i++) { pick.push(cand[i]); comb(i + 1, pick); pick.pop(); }
+      })(0, []);
+      if (found && !many) {
+        // indeksy zmienionych naklejek po obrocie
+        var mark = new Array(54); found.changed.forEach(function (i) { mark[i] = 1; });
+        found.rots.forEach(function (k, fi) { if (k) rotFace(mark, fi, k); });
+        found.changed = []; mark.forEach(function (v, i) { if (v) found.changed.push(i); });
+        return found;
+      }
+      if (many) return null;
+    }
+    return null;
+  }
+  // Szuka obrotów ścianek, przy których kostka jest poprawna (np. zdjęcie góry/dołu zrobione bokiem)
+  function findRotationFix(s, withZero) {
+    var sols = [];
+    for (var code = withZero ? 0 : 1; code < 4096 && sols.length < 2; code++) {
+      var t = s.slice(), rots = [];
+      for (var fi = 0; fi < 6; fi++) { var k = (code >> (fi * 2)) & 3; rots.push(k); if (k) rotFace(t, fi, k); }
+      if (validate(t).ok) sols.push({ rots: rots, state: t });
+    }
+    return sols.length === 1 ? sols[0] : null;
+  }
   $('#btn-solve').onclick = function () {
-    var v = validate(state); badIdx = v.bad; paintNet(netEl, function () { return state; });
-    var m = $('#validate-msg');
+    var v = validate(state), m = $('#validate-msg');
+    if (!v.ok) {
+      var fix = findFix(state, lowConf);
+      if (fix) {
+        var names = [];
+        fix.rots.forEach(function (k, fi) {
+          if (!k) return;
+          var f = ORDER[fi]; names.push(PL[f]);
+          if (photos[f]) { for (var t = 0; t < k; t++) rotatePhoto(f, true); }
+        });
+        state = fix.state;
+        Object.keys(photos).forEach(function (f) { photos[f].samples = sample(photos[f]); drawPhoto(f); });
+        paintNet(netEl, function () { return state; });
+        v = validate(state);
+        m.className = 'msg ok';
+        m.textContent = 'Poprawiłem obrót zdjęć: ' + names.join(', ') + '. Kostka poprawna – liczę rozwiązanie…';
+        startMine(state.join(''));
+        return;
+      }
+    }
+    badIdx = v.bad; paintNet(netEl, function () { return state; });
     if (!v.ok) { m.className = 'msg err'; m.innerHTML = v.errs.join('<br>'); return; }
     if (state.join('') === SOLVED) { m.className = 'msg ok'; m.textContent = 'Ta kostka jest już ułożona 🙂 Pomieszaj ją albo użyj demo.'; return; }
     m.className = 'msg ok'; m.textContent = 'Kostka poprawna – liczę rozwiązanie…';
@@ -516,10 +638,10 @@
   $('#hl-mode').onchange = function () { hlOn = this.checked; try { localStorage.setItem('kostkownik-hl', hlOn ? '1' : '0'); } catch (e) {} applyHighlight(); };
   function sortKey(n) { return n.split('').sort().join(''); }
   function posOf(n) { var p = [0, 0, 0]; n.split('').forEach(function (ch) { if (ch === 'U') p[1] = 1; if (ch === 'D') p[1] = -1; if (ch === 'R') p[0] = 1; if (ch === 'L') p[0] = -1; if (ch === 'F') p[2] = 1; if (ch === 'B') p[2] = -1; }); return p; }
-  var PL_ADJ_E = { U: 'żółto', R: 'czerwono', F: 'zielono', D: 'biało', L: 'pomarańczowo', B: 'niebiesko' };
+  var PL_ADJ_E = { U: 'żółto', R: 'pomarańczowo', F: 'zielono', D: 'biało', L: 'czerwono', B: 'niebiesko' };
   function pieceLabel(n) {
     var ord = n.split('').sort(function (a, b) { return 'DURFLB'.indexOf(a) - 'DURFLB'.indexOf(b); });
-    var last = { U: 'żółt', R: 'czerwon', F: 'zielon', D: 'biał', L: 'pomarańczow', B: 'niebiesk' }[ord[ord.length - 1]];
+    var last = { U: 'żółt', R: 'pomarańczow', F: 'zielon', D: 'biał', L: 'czerwon', B: 'niebiesk' }[ord[ord.length - 1]];
     var head = ord.slice(0, -1).map(function (c) { return PL_ADJ_E[c] + '-'; }).join('');
     return n.length === 2 ? 'krawędź ' + head + last + 'a' : 'narożnik ' + head + last + (last.slice(-1) === 'k' ? 'i' : 'y');
   }

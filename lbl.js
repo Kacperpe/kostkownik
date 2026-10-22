@@ -102,9 +102,10 @@
     return out;
   }
 
-  var PIECE_NAMES_E = { DF: 'biało-zielona', DR: 'biało-czerwona', DB: 'biało-niebieska', DL: 'biało-pomarańczowa',
-    FR: 'zielono-czerwona', FL: 'zielono-pomarańczowa', BL: 'niebiesko-pomarańczowa', BR: 'niebiesko-czerwona' };
-  var PIECE_NAMES_C = { DFR: 'biało-zielono-czerwony', DLF: 'biało-pomarańczowo-zielony', DBL: 'biało-niebiesko-pomarańczowy', DRB: 'biało-czerwono-niebieski' };
+  // schemat: żółty góra, zielony przód, pomarańczowy prawa, czerwony lewa
+  var PIECE_NAMES_E = { DF: 'biało-zielona', DR: 'biało-pomarańczowa', DB: 'biało-niebieska', DL: 'biało-czerwona',
+    FR: 'zielono-pomarańczowa', FL: 'zielono-czerwona', BL: 'niebiesko-czerwona', BR: 'niebiesko-pomarańczowa' };
+  var PIECE_NAMES_C = { DFR: 'biało-zielono-pomarańczowy', DLF: 'biało-czerwono-zielony', DBL: 'biało-niebiesko-czerwony', DRB: 'biało-pomarańczowo-niebieski' };
 
   function solveLBL(facelets) {
     var cube = Cube.fromString(facelets);

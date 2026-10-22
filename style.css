@@ -1,7 +1,7 @@
 :root{
   --bg:#0e0f12; --panel:#16181d; --panel2:#1d2027; --line:#2a2e37; --text:#ecedf0; --muted:#9aa0ab;
   --accent:#f5b400; --accent-ink:#1a1400; --ok:#30a46c; --bad:#e5484d;
-  --cU:#ffd500; --cR:#c41e3a; --cF:#009e60; --cD:#ffffff; --cL:#ff6a00; --cB:#0051ba;
+  --cU:#ffd500; --cR:#ff6a00; --cF:#009e60; --cD:#ffffff; --cL:#c41e3a; --cB:#0051ba;
   --r:14px;
 }
 *{box-sizing:border-box}
@@ -49,6 +49,14 @@ main{max-width:1180px;margin:0 auto;padding:16px}
 .face-actions{display:flex;gap:6px}
 .face-actions .btn{flex:1;padding:7px 4px;font-size:16px;text-align:center;line-height:1.2}
 .drop small{font-size:11px;opacity:.7}
+.face-sel{flex:1;min-width:0;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:5px 6px;font:inherit;font-size:13px;font-weight:600}
+.add-card{cursor:pointer;border-style:dashed;justify-content:center;min-height:220px}
+.add-card:hover,.add-card.over{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 8%,var(--panel))}
+.add-inner{display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center;color:var(--muted)}
+.add-inner b{font-size:40px;line-height:1;color:var(--accent)}
+.add-inner span{color:var(--text);font-weight:600}
+.add-inner small{font-size:12px}
+.tip{font-size:13px!important;margin-top:10px!important}
 
 /* siatka */
 .net-wrap{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:14px}

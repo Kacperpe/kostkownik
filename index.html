@@ -24,13 +24,16 @@
   <!-- SKANOWANIE -->
   <section id="tab-scan" class="panel active">
     <div class="intro">
-      <h1>Zrób 6 zdjęć kostki</h1>
-      <p>Trzymaj kostkę <b>żółtym środkiem do góry</b> i <b>zielonym do siebie</b>. Najwygodniej: <b>skan kamerą na żywo</b> – aplikacja prowadzi Cię przez 6 ścianek. Możesz też zrobić zdjęcie (📷) albo wybrać z galerii (🖼); ramkę na zdjęciu przesuwasz palcem i powiększasz za róg. Kolory zawsze poprawisz na siatce poniżej.</p>
+      <h1>Zeskanuj kostkę</h1>
+      <p>Zrób zdjęcie każdej z 6 ścianek – w dowolnej kolejności i pod dowolnym kątem obrotu – i dodaj je wszystkie naraz. Aplikacja sama znajdzie kostkę na zdjęciu, rozpozna ściankę po kolorze środka i ułoży ją we właściwej pozycji. Jeśli coś się nie zgodzi, przesuń żółtą ramkę na zdjęciu albo popraw kolor na siatce.</p>
       <div class="row-btns">
-        <button id="btn-live" class="btn primary">🎥 Skanuj kamerą na żywo</button>
-        <button id="btn-demo" class="btn ghost">🎲 Demo: losowa kostka</button>
-        <button id="btn-reset" class="btn ghost">↺ Ułożona kostka</button>
+        <label class="btn primary">🖼 Dodaj zdjęcia<input id="inp-gallery" type="file" accept="image/*" multiple hidden></label>
+        <label class="btn">📷 Zrób zdjęcie<input id="inp-camera" type="file" accept="image/*" capture="environment" hidden></label>
+        <button id="btn-live" class="btn">🎥 Skan kamerą na żywo</button>
+        <button id="btn-demo" class="btn ghost">🎲 Demo</button>
+        <button id="btn-clear" class="btn ghost">↺ Wyczyść</button>
       </div>
+      <p class="tip">💡 Najlepiej przy dobrym świetle, kostka na środku kadru, bez lampy błyskowej. Zdjęcia: <b id="shot-count">0/6</b></p>
     </div>
 
     <div id="faces" class="faces"></div>
@@ -117,11 +120,13 @@
   </div>
 </div>
 
-<footer class="foot">Wersja demo 0.1 · rozpoznawanie kolorów działa lokalnie w przeglądarce – zdjęcia nigdzie nie są wysyłane.</footer>
+<footer class="foot">Wersja demo 0.3 · rozpoznawanie kolorów działa lokalnie w przeglądarce – zdjęcia nigdzie nie są wysyłane.</footer>
 
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/cubejs@1.3.2/lib/cube.js"></script>
+<script src="color.js"></script>
+<script src="detect.js"></script>
 <script src="geom.js"></script>
 <script src="algs.js"></script>
 <script src="app.js"></script>
